@@ -630,7 +630,7 @@ func (provider *Docker) listServices(ctx context.Context, dockerClient client.AP
 		if useSwarmLB {
 			dockerDataList = append(dockerDataList, dockerData)
 		} else {
-			dockerDataListTasks, err = listTasks(ctx, dockerClient, service.ID, dockerData, networkMap)
+			dockerDataListTasks, err = listTasks(ctx, dockerClient, service.ID, dockerData, networkMap, service.Spec.Mode.Global != nil)
 
 			for _, dockerDataTask := range dockerDataListTasks {
 				dockerDataList = append(dockerDataList, dockerDataTask)
@@ -675,9 +675,10 @@ func parseService(service swarmtypes.Service, networkMap map[string]*dockertypes
 }
 
 func listTasks(ctx context.Context, dockerClient client.APIClient, serviceID string,
-	serviceDockerData dockerData, networkMap map[string]*dockertypes.NetworkResource) ([]dockerData, error) {
+	serviceDockerData dockerData, networkMap map[string]*dockertypes.NetworkResource, useNodeID bool) ([]dockerData, error) {
 	serviceIDFilter := filters.NewArgs()
 	serviceIDFilter.Add("service", serviceID)
+	serviceIDFilter.Add("desired-state", "running")
 	taskList, err := dockerClient.TaskList(ctx, dockertypes.TaskListOptions{Filter: serviceIDFilter})
 
 	if err != nil {
@@ -686,18 +687,22 @@ func listTasks(ctx context.Context, dockerClient client.APIClient, serviceID str
 	var dockerDataList []dockerData
 
 	for _, task := range taskList {
-		dockerData := parseTasks(task, serviceDockerData, networkMap)
+		dockerData := parseTasks(task, serviceDockerData, networkMap, useNodeID)
 		dockerDataList = append(dockerDataList, dockerData)
 	}
 	return dockerDataList, err
 }
 
-func parseTasks(task swarmtypes.Task, serviceDockerData dockerData, networkMap map[string]*dockertypes.NetworkResource) dockerData {
+func parseTasks(task swarmtypes.Task, serviceDockerData dockerData, networkMap map[string]*dockertypes.NetworkResource, useNodeID bool) dockerData {
 	dockerData := dockerData{
 		ServiceName:     serviceDockerData.Name,
 		Name:            serviceDockerData.Name + "." + strconv.Itoa(task.Slot),
 		Labels:          serviceDockerData.Labels,
 		NetworkSettings: networkSettings{},
+	}
+
+	if useNodeID == true {
+		dockerData.Name = serviceDockerData.Name + "." + task.NodeID
 	}
 
 	if task.NetworksAttachments != nil {
